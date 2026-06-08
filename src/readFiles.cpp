@@ -111,18 +111,29 @@ read weights file
 int readWtsFile(string fname) {
   fstream file;
   string buf;
-  int i = 0;
   vector < string > strVec;
-  map < string, Node > ::iterator itr;
 
   file.open(fname, ios:: in );
+  if (!file.is_open()) {
+    return 1;
+  }
+  int netIdx = 1;
   while (getline(file, buf)) {
-    i++;
     boost::trim(buf);
-    if (i > 5) {
-      boost::algorithm::split(strVec, buf, is_any_of("\t,  "), boost::token_compress_on);
-      nodeId[name2id[strVec[1]]].setParameterWts(atof(strVec[2].c_str()));
+    if (buf.empty() || buf[0] == '#' || boost::starts_with(buf, "UCLA")) {
+      continue;
     }
+    boost::algorithm::split(strVec, buf, is_any_of("\t,  "), boost::token_compress_on);
+    if (strVec.size() < 2) {
+      continue;
+    }
+    netIdToName[netIdx] = strVec[0];
+    try {
+      netWeightById[netIdx] = stod(strVec[1]);
+    } catch (...) {
+      netWeightById[netIdx] = 1.0;
+    }
+    netIdx += 1;
   }
   file.close();
   return 0;
@@ -186,6 +197,14 @@ map<int, vector<pPin> > readNetsFile(string fname) {
         boost::split(results, buf, [](char c){return c == ' ';});
         //Out = buf.substr(buf.rfind(" ") + 1);
         Out = results.at(2);
+        if (results.size() > 3) {
+          netIdToName[NetId] = results.at(3);
+        } else if (netIdToName.find(NetId) == netIdToName.end()) {
+          netIdToName[NetId] = "NET_" + to_string(NetId);
+        }
+        if (netWeightById.find(NetId) == netWeightById.end()) {
+          netWeightById[NetId] = 1.0;
+        }
       } else {
         continue;
       }
@@ -327,7 +346,7 @@ int writePlFile(string fname) {
     // print components
     for (itNode = nodeId.begin(); itNode != nodeId.end(); ++itNode) {
       if(!itNode->terminal) {
-        myfile << itNode->name << " " << itNode->xCoordinate << " " << itNode->yCoordinate <<  " : " << itNode->orient2str(itNode->orientation) << " " << itNode->layer;
+        myfile << itNode->name << " " << itNode->xCoordinate << " " << itNode->yCoordinate <<  " : " << itNode->orientation_str << " " << itNode->layer;
         if (itNode->fixed) {
           myfile << " /FIXED_NI\n";
         } else {
@@ -340,7 +359,7 @@ int writePlFile(string fname) {
     // print terminals
     for (itNode = nodeId.begin(); itNode != nodeId.end(); ++itNode) {
       if(itNode->terminal) {
-        myfile << itNode->name << " " << itNode->xCoordinate << " " << itNode->yCoordinate << " : " << itNode->orient2str(itNode->orientation) << " " << itNode->layer;
+        myfile << itNode->name << " " << itNode->xCoordinate << " " << itNode->yCoordinate << " : " << itNode->orientation_str << " " << itNode->layer;
         myfile << " /FIXED_NI\n";
       }
     }

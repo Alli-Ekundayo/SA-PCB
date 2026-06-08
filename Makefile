@@ -2,6 +2,8 @@ circuitname := './designs/bm1'
 plfile := './bin/final_placement.pl'
 outfile := './placement.png'
 
+.PHONY: all graphs plot animate_plot animate_graphs convert install test clean
+
 all:
 	+$(MAKE) -C src
 	mv src/annealer ./bin
@@ -79,8 +81,7 @@ install:
 	fi
 
 test:
-	cd ./test
-	./run.sh
+	cd ./test && ./run.sh
 
 clean :
 	-rm src/*.o

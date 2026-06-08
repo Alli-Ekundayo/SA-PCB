@@ -122,6 +122,7 @@ public:
                                               for (nodeit = nodeId.begin(); nodeit != nodeId.end(); ++nodeit) { 
                                                 nodeit->sigma = _eps; } }
   void set_rtree(bool _rt) { rt = _rt; }
+  void set_rotation_mode(int _mode) { rotate_flag = _mode; }
   void set_lam(bool _lam) { lam = _lam; }
   void set_lamtemp_update(double _coef) { lamtemp_update = _coef; }
 
@@ -220,7 +221,7 @@ private:
   double best_cost = std::numeric_limits<double>::max();
 
   // rtree datastructure for fast overlap check
-  bool rt = false;
+  bool rt = true;
   bgi::rtree<std::pair<boost::geometry::model::box< model::d2::point_xy<int> >, int>, bgi::quadratic<16> > rtree;
 
   std::vector<std::string> mGridLayerToName;
