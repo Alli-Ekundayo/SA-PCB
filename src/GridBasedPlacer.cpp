@@ -52,6 +52,16 @@ vector < Node > nodeId;
 vector < Module * > moduleId;
 Hierarchy H;
 map < string, int > name2id;
+map < int, string > netIdToName;
+map < int, double > netWeightById;
+
+static inline void transformPin(const Node& node, const pPin& pin, double& xVal, double& yVal) {
+  const double rad = node.orientation_deg * PI / 180.0;
+  const double c = cos(rad);
+  const double s = sin(rad);
+  xVal = node.xBy2 + (pin.x_offset * c) - (pin.y_offset * s);
+  yVal = node.yBy2 + (pin.x_offset * s) + (pin.y_offset * c);
+}
 
 void GridBasedPlacer::test_hplacer_flow() {
   srand(time(NULL));
@@ -95,6 +105,7 @@ void GridBasedPlacer::test_hplacer_flow() {
   readPlFile(plfname);
   cout << "reading nets..." << endl;
   netToCell = readNetsFile(netsfname); // mapping from net ids to vectors of pins - need to add weights
+  readWtsFile(wtsfname);
   cout << "# Nets: " << netToCell.size() << endl;
   cout << "reading cluster heirarchy..." << endl;
   readClstFile(clstname);
@@ -550,19 +561,31 @@ void GridBasedPlacer::random_placement(int xmin, int xmax, int ymin, int ymax, N
   int ry = uniy();
 
   int ro = 0;
+  double ro_deg = 0.0;
   if (rotate_flag == 0) {
     boost::uniform_int<> uni_disto(0,3);
     boost::variate_generator<boost::mt19937&, boost::uniform_int<> > unio(rng, uni_disto);
     ro = unio();
     ro = ro * 2;
   } else {
-    boost::uniform_int<> uni_disto(0,7);
-    boost::variate_generator<boost::mt19937&, boost::uniform_int<> > unio(rng, uni_disto);
-    ro = unio();
+    if (rotate_flag == 1) {
+      boost::uniform_int<> uni_disto(0,7);
+      boost::variate_generator<boost::mt19937&, boost::uniform_int<> > unio(rng, uni_disto);
+      ro = unio();
+    } else {
+      boost::uniform_real<> uni_disto(0.0,360.0);
+      boost::variate_generator<boost::mt19937&, boost::uniform_real<> > unio(rng, uni_disto);
+      ro_deg = unio();
+    }
   }
 
-  string ostr = n.orient2str(ro);
-  n.setParameterPl(rx, ry, ostr, n.fixed);
+  if (rotate_flag < 2) {
+    string ostr = n.orient2str(ro);
+    n.setParameterPl(rx, ry, ostr, n.fixed);
+  } else {
+    n.setParameterPl(rx, ry, "N", n.fixed);
+    n.setRotationDegrees(ro_deg, true);
+  }
   validate_move(n, rx, ry);
 }
 
@@ -665,48 +688,7 @@ double GridBasedPlacer::wirelength(map<int, vector<pPin> > &netToCell) {
       if(itCellList->name == "") {
         continue;
       }
-      int orient = nodeId[itCellList->idx].orientation;
-      int layer = nodeId[itCellList->idx].layer;
-      xVal = nodeId[itCellList->idx].xBy2;
-      yVal = nodeId[itCellList->idx].yBy2;
-      
-      if (layer == 1) {
-	      if(orient == 0) { // 0
-		xVal = xVal + itCellList->x_offset;
-		yVal = yVal + itCellList->y_offset;
-	      } else if(orient == 2) { // 90
-		xVal = xVal + itCellList->y_offset;
-		yVal = yVal - itCellList->x_offset;
-	      } else if(orient == 4) { // 180
-		xVal = xVal - itCellList->x_offset;
-		yVal = yVal - itCellList->y_offset;
-	      } else if(orient == 6) { // 270
-		xVal = xVal - itCellList->y_offset;
-		yVal = yVal + itCellList->x_offset;
-	      } else {
-		double rad = (orient*45.0*PI/180.0);
-		xVal = itCellList->y_offset*sin(rad) + itCellList->x_offset*cos(rad) + xVal;
-		yVal = itCellList->y_offset*cos(rad) - itCellList->x_offset*sin(rad) + yVal;
-	      }
-      } else {
-	      if(orient == 0) { // 0
-		xVal = xVal + itCellList->x_offset;
-		yVal = yVal + itCellList->y_offset;
-	      } else if(orient == 2) { // 90
-		xVal = xVal + itCellList->y_offset;
-		yVal = yVal - itCellList->x_offset;
-	      } else if(orient == 4) { // 180
-		xVal = xVal - itCellList->x_offset;
-		yVal = yVal - itCellList->y_offset;
-	      } else if(orient == 6) { // 270
-		xVal = xVal - itCellList->y_offset;
-		yVal = yVal + itCellList->x_offset;
-	      } else {
-		double rad = (orient*45.0*PI/180.0);
-		xVal = itCellList->y_offset*sin(rad) + itCellList->x_offset*cos(rad) + xVal;
-		yVal = itCellList->y_offset*cos(rad) - itCellList->x_offset*sin(rad) + yVal;
-	      }
-      }
+      transformPin(nodeId[itCellList->idx], *itCellList, xVal, yVal);
       if (xVal < minXW)
         minXW = xVal;
       if (xVal > maxXW)
@@ -716,7 +698,12 @@ double GridBasedPlacer::wirelength(map<int, vector<pPin> > &netToCell) {
       if (yVal > maxYW)
         maxYW = yVal;
     }
-    wireLength += (abs((maxXW - minXW)) + abs((maxYW - minYW)));
+    double netWeight = 1.0;
+    auto wIt = netWeightById.find(itNet->first);
+    if (wIt != netWeightById.end()) {
+      netWeight = wIt->second;
+    }
+    wireLength += netWeight * (abs((maxXW - minXW)) + abs((maxYW - minYW)));
   }
   return wireLength;
 }
@@ -786,27 +773,7 @@ double GridBasedPlacer::wirelength_partial(vector < Node *> &nodes, map<int, vec
         if(itCellList->name == "") {
           continue;
         }
-        int orient = nodeId[itCellList->idx].orientation;
-        xVal = nodeId[itCellList->idx].xBy2;
-        yVal = nodeId[itCellList->idx].yBy2;
-
-        if(orient == 0) { // 0
-          xVal = xVal + itCellList->x_offset;
-          yVal = yVal + itCellList->y_offset;
-        } else if(orient == 2) { // 90
-          xVal = xVal + itCellList->y_offset;
-          yVal = yVal - itCellList->x_offset;
-        } else if(orient == 4) { // 180
-          xVal = xVal - itCellList->x_offset;
-          yVal = yVal - itCellList->y_offset;
-        } else if(orient == 6) { // 270
-          xVal = xVal - itCellList->y_offset;
-          yVal = yVal + itCellList->x_offset;
-        } else {
-          double rad = (orient*45.0*PI/180.0);
-          xVal = itCellList->y_offset*sin(rad) + itCellList->x_offset*cos(rad) + xVal;
-          yVal = itCellList->y_offset*cos(rad) - itCellList->x_offset*sin(rad) + yVal;
-        }
+        transformPin(nodeId[itCellList->idx], *itCellList, xVal, yVal);
 
         if (xVal < minXW)
           minXW = xVal;
@@ -817,7 +784,12 @@ double GridBasedPlacer::wirelength_partial(vector < Node *> &nodes, map<int, vec
         if (yVal > maxYW)
           maxYW = yVal;
       }
-      wireLength += (abs((maxXW - minXW)) + abs((maxYW - minYW)));
+      double netWeight = 1.0;
+      auto wIt = netWeightById.find(*itNet);
+      if (wIt != netWeightById.end()) {
+        netWeight = wIt->second;
+      }
+      wireLength += netWeight * (abs((maxXW - minXW)) + abs((maxYW - minYW)));
     }
   }
   return wireLength;
@@ -915,29 +887,7 @@ double GridBasedPlacer::rudy(map<int, vector<pPin> > &netToCell) {
     double minXW = mMaxX, minYW = mMaxY, maxXW = mMinX, maxYW = mMinY;
     double rudy = 0.0;
     for (itCellList = itNet -> second.begin(); itCellList != itNet -> second.end(); ++itCellList) {
-      int orient = nodeId[itCellList->idx].orientation;
- 
-      xVal = nodeId[itCellList->idx].xBy2;
-      yVal = nodeId[itCellList->idx].yBy2;
-
-      // compute pin position from orientation & offsets
-      if(orient == 0) { // 0
-        xVal = xVal + itCellList->x_offset;
-        yVal = yVal + itCellList->y_offset;
-      } else if(orient == 2) { // 90
-        xVal = xVal + itCellList->y_offset;
-        yVal = yVal - itCellList->x_offset;
-      } else if(orient == 4) { // 180
-        xVal = xVal - itCellList->x_offset;
-        yVal = yVal - itCellList->y_offset;
-      } else if(orient == 6) { // 270
-        xVal = xVal - itCellList->y_offset;
-        yVal = yVal + itCellList->x_offset;
-      } else {
-        double rad = (orient*45.0*PI/180.0);
-        xVal = itCellList->y_offset*sin(rad) + itCellList->x_offset*cos(rad) + xVal;
-        yVal = itCellList->y_offset*cos(rad) - itCellList->x_offset*sin(rad) + yVal;
-      }
+      transformPin(nodeId[itCellList->idx], *itCellList, xVal, yVal);
 
       if (xVal < minXW)
         minXW = xVal;
@@ -1108,6 +1058,7 @@ vector<double> GridBasedPlacer::initiate_move(vector<double> current_cost_vec, m
   vector < Node* > perturbed_nodes;
 
   int r = 0;
+  double r_deg = 0.0;
   rand_node1 = random_node();
   while(rand_node1->terminal || rand_node1->name == "" || rand_node1->fixed) {
     rand_node1 = random_node();
@@ -1193,12 +1144,18 @@ vector<double> GridBasedPlacer::initiate_move(vector<double> current_cost_vec, m
       boost::variate_generator<boost::mt19937&, boost::uniform_int<> > uni(rng, uni_dist);
       r = uni();
       r = r*2;
-    } else {
+      rand_node1->setRotation(r);
+    } else if (rotate_flag == 1) {
       boost::uniform_int<> uni_dist(0,7);
       boost::variate_generator<boost::mt19937&, boost::uniform_int<> > uni(rng, uni_dist);
       r = uni();
+      rand_node1->setRotation(r);
+    } else {
+      boost::uniform_real<> uni_dist(-180.0,180.0);
+      boost::variate_generator<boost::mt19937&, boost::uniform_real<> > uni(rng, uni_dist);
+      r_deg = uni();
+      rand_node1->setRotationDegrees(r_deg);
     }
-    rand_node1->setRotation(r);
     validate_move(*rand_node1, rand_node1_orig_x, rand_node1_orig_y);
 
     if(rt) {
@@ -1287,7 +1244,11 @@ vector<double> GridBasedPlacer::initiate_move(vector<double> current_cost_vec, m
       if(rt) {
           rtree.remove(std::make_pair(rand_node1->envelope, rand_node1->idx));
       }
-      rand_node1->setRotation(8-r);
+      if (rotate_flag < 2) {
+        rand_node1->setRotation(8-r);
+      } else {
+        rand_node1->setRotationDegrees(-r_deg);
+      }
       rand_node1->setPos(rand_node1_orig_x,rand_node1_orig_y);
       if(rt) {
           rtree.insert(std::make_pair(rand_node1->envelope, rand_node1->idx));
@@ -1890,7 +1851,12 @@ double GridBasedPlacer::h_wirelength(map<int, vector<Module *> > &netToCell) {
       if (yVal > maxYW)
         maxYW = yVal;
     }
-    wireLength += (abs((maxXW - minXW)) + abs((maxYW - minYW)));
+    double netWeight = 1.0;
+    auto wIt = netWeightById.find(itNet->first);
+    if (wIt != netWeightById.end()) {
+      netWeight = wIt->second;
+    }
+    wireLength += netWeight * (abs((maxXW - minXW)) + abs((maxYW - minYW)));
   }
   return wireLength;
 }
@@ -1964,7 +1930,12 @@ double GridBasedPlacer::h_wirelength_partial(vector < Module *> &nodes, map<int,
         if (yVal > maxYW)
           maxYW = yVal;
       }
-      wireLength += (abs((maxXW - minXW)) + abs((maxYW - minYW)));
+      double netWeight = 1.0;
+      auto wIt = netWeightById.find(*itNet);
+      if (wIt != netWeightById.end()) {
+        netWeight = wIt->second;
+      }
+      wireLength += netWeight * (abs((maxXW - minXW)) + abs((maxYW - minYW)));
     }
   }
   return wireLength;
@@ -2082,29 +2053,7 @@ double GridBasedPlacer::h_rudy(map<int, vector<Module *> > &netToCell) {
     double minXW = mMaxX, minYW = mMaxY, maxXW = mMinX, maxYW = mMinY;
     double rudy = 0.0;
     for (itCellList = itNet -> second.begin(); itCellList != itNet -> second.end(); ++itCellList) {
-      int orient = nodeId[(*itCellList)->idx].orientation;
- 
-      xVal = nodeId[(*itCellList)->idx-1].xBy2;
-      yVal = nodeId[(*itCellList)->idx-1].yBy2;
-
-      // compute pin position from orientation & offsets
-      if(orient == 0) { // 0
-        xVal = xVal + (*itCellList)->x_offset;
-        yVal = yVal + (*itCellList)->y_offset;
-      } else if(orient == 2) { // 90
-        xVal = xVal + (*itCellList)->y_offset;
-        yVal = yVal - (*itCellList)->x_offset;
-      } else if(orient == 4) { // 180
-        xVal = xVal - (*itCellList)->x_offset;
-        yVal = yVal - (*itCellList)->y_offset;
-      } else if(orient == 6) { // 270
-        xVal = xVal - (*itCellList)->y_offset;
-        yVal = yVal + (*itCellList)->x_offset;
-      } else {
-        double rad = (orient*45.0*PI/180.0);
-        xVal = (*itCellList)->y_offset*sin(rad) + (*itCellList)->x_offset*cos(rad) + xVal;
-        yVal = (*itCellList)->y_offset*cos(rad) - (*itCellList)->x_offset*sin(rad) + yVal;
-      }
+      transformPin(nodeId[(*itCellList)->idx], *itCellList, xVal, yVal);
 
       if (xVal < minXW)
         minXW = xVal;

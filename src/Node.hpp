@@ -83,6 +83,7 @@ class Node {
     string orientation_str;
     int init_orientation;
     int orientation;
+    double orientation_deg;
     int layer=1; // 1 or -1 for 2-sided placement
     bool throughhole; //throughhole
     int mirror;
@@ -100,6 +101,7 @@ class Node {
     static void local_flip(Point &p);
     int wrap_orientation(int kX);
     void setRotation(int r);
+    void setRotationDegrees(double deg, bool absolute = false);
     void updateCoordinates();
     int str2orient(string o) const;
     string orient2str(int o) const;

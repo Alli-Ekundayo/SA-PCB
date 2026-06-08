@@ -9,7 +9,7 @@
 ### Pre-requisites
   * GCC compiler >= 4.8.5
   * boost library >= 1.62
-  * cpp-taskflow >= 2.0
+  * cpp-taskflow >= 2.0 [deprecated for multistart]
   * Python >= 3.6
   * shapely >= 1.6.4
   * matplotlib >= 3.0.2
@@ -75,14 +75,21 @@
   - Bookshelf version translator
   - Plotting & animations
 
-## Limitations / Current issues / In development
-  - Parallel multistart [Issues with cpp-taskflow. Still support for multi-start via python script.]
-  - R-Tree spatial indexing for fast overlap computation
-  - Free rotation
-  - Algorithm very sensitive to parameters
-  - Broken support for weighted modules/nets
-  - Set up Dockerfile
-  - Support json configuration files for algorithm parameters
+## Current status
+  - Parallel multistart is supported via `src/py_utils/multistart.py` with deterministic seeding, worker pooling and timeout controls.
+  - R-tree overlap path is enabled by default in the placer core and can still be toggled through API/config.
+  - Rotation mode now supports 90/45/free modes (compatibility mode preserved through rotation settings).
+  - Net weight parsing from `.wts` is enabled and weights are applied to wirelength terms.
+  - JSON configuration files are supported via `src/py_utils/run_with_config.py` (CLI overrides JSON).
+  - Docker multi-stage build/runtime image is provided in `Dockerfile`.
+
+## Benchmarking and validation
+  - Run multistart and save structured results:
+    - `python3 src/py_utils/multistart.py --config test/simple.json`
+  - Generate benchmark summary metrics:
+    - `python3 test/benchmark.py --design designs/bbb --results cache/multistart/multistart_results.json`
+  - Check overlap parity (STRtree vs brute force):
+    - `python3 test/rtree_parity.py --design designs/bbb --pl designs/bbb.pl`
 
 ### Authors
   - Chester Holtz, Devon Merrill, James (Ting-Chou) Lin, Connie (Yen-Yi) Wu (Ph.D. advisor: Chung-Kuan Cheng, Steven Swanson).

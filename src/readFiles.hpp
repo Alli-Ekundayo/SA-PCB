@@ -65,6 +65,8 @@ extern map < string, int > name2id;
 extern vector < Node > nodeId;
 extern vector < Module * > moduleId;
 extern Hierarchy H;
+extern map < int, string > netIdToName;
+extern map < int, double > netWeightById;
 
 int readNodesFile(string fname);
 int readShapesFile(string fname);

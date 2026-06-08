@@ -5,7 +5,7 @@ LIBS := -lboost_regex
 annealer : main.o readFiles.o
 	$(CC) $(CFLAGS) $(LIBS) -o annealer main.o readFiles.o  #readScl.o
 
-main.o : main.hpp readFiles.hpp Node.hpp Pin.hpp main.cpp
+main.o : readFiles.hpp Node.hpp Pin.hpp main.cpp
 	$(CC) $(CFLAGS) -c main.cpp
 
 readFiles.o : Node.hpp Pin.hpp readFiles.hpp readFiles.cpp

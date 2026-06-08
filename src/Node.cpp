@@ -35,6 +35,9 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "Node.hpp"
+#include <sstream>
+#include <iomanip>
+#include <cmath>
 
 using namespace std;
 using namespace boost::geometry;
@@ -51,6 +54,7 @@ void Node::setParameterNodes(string _name, double _width, double _height, bool _
   xCoordinate = 0.0;
   yCoordinate = 0.0;
   orientation = 0;
+  orientation_deg = 0.0;
   width = _width;
   height = _height;
   terminal = _terminal;
@@ -105,12 +109,25 @@ setParameterPl
 Sets parameters given an entry in Pl file  
 */
 void Node::setParameterPl(double xCoordinate, double yCoordinate, string _orientation_str, bool _fixed) {
+  double target_deg = 0.0;
+  if (!_orientation_str.empty() && (_orientation_str[0] == 'R' || _orientation_str[0] == 'r')) {
+    try {
+      target_deg = stod(_orientation_str.substr(1));
+    } catch (...) {
+      target_deg = 0.0;
+    }
+  } else {
+    target_deg = 45.0 * str2orient(_orientation_str);
+  }
+
   setPos(xCoordinate, yCoordinate);
   initialX = xCoordinate;
   initialY = yCoordinate;
-  orientation_str = _orientation_str;
+  orientation_str = _orientation_str.empty() ? "N" : _orientation_str;
   init_orientation = str2orient(_orientation_str);
-  setRotation(str2orient(_orientation_str));
+  orientation = 0;
+  orientation_deg = 0.0;
+  setRotationDegrees(target_deg, true);
   fixed = _fixed;
 
   sigma = 50.0 * max(10/((double)(width * height)), 1.0);
@@ -176,18 +193,54 @@ setRotation
 Rotate polygon about global origin and transform back to local origin
 */
 void Node::setRotation(int r) {
-  int rot_deg = 45*r;
-  double tmpx = xCoordinate;
-  double tmpy = yCoordinate;
+  setRotationDegrees(45.0 * r);
+}
 
-  setPos(-width/2,-height/2);
-  model::polygon<model::d2::point_xy<double> > tmp;
-  trans::rotate_transformer<boost::geometry::degree, double, 2, 2> rotate(rot_deg);
-  boost::geometry::transform(poly, tmp, rotate);
-  poly = tmp;
-  double otmp = wrap_orientation(orientation + r);
-  orientation = otmp;
-  setPos(tmpx, tmpy);
+void Node::setRotationDegrees(double deg, bool absolute) {
+  if (terminal) {
+    return;
+  }
+
+  double delta = deg;
+  if (absolute) {
+    delta = deg - orientation_deg;
+  }
+  if (abs(delta) < 1e-12) {
+    return;
+  }
+
+  boost::geometry::model::d2::point_xy<double> c;
+  boost::geometry::centroid(poly, c);
+
+  model::polygon<model::d2::point_xy<double> > centered;
+  model::polygon<model::d2::point_xy<double> > rotated;
+  model::polygon<model::d2::point_xy<double> > translated;
+
+  trans::translate_transformer<double, 2, 2> to_origin(-c.x(), -c.y());
+  boost::geometry::transform(poly, centered, to_origin);
+
+  trans::rotate_transformer<boost::geometry::degree, double, 2, 2> rotate(delta);
+  boost::geometry::transform(centered, rotated, rotate);
+
+  trans::translate_transformer<double, 2, 2> back(c.x(), c.y());
+  boost::geometry::transform(rotated, translated, back);
+  poly = translated;
+
+  orientation_deg = fmod(orientation_deg + delta, 360.0);
+  if (orientation_deg < 0) {
+    orientation_deg += 360.0;
+  }
+  orientation = wrap_orientation((int)llround(orientation_deg / 45.0));
+
+  if (abs(orientation_deg - 45.0 * orientation) < 1e-6) {
+    orientation_str = orient2str(orientation);
+  } else {
+    std::ostringstream ss;
+    ss << "R" << std::fixed << std::setprecision(3) << orientation_deg;
+    orientation_str = ss.str();
+  }
+
+  updateCoordinates();
 }
 
 /**
@@ -226,6 +279,19 @@ void Node::updateCoordinates() {
 }
 
 int Node::str2orient(string o) const{
+  if(!o.empty() && (o[0] == 'R' || o[0] == 'r')) {
+    try {
+      double deg = stod(o.substr(1));
+      int bucket = (int)llround(deg / 45.0);
+      int wrapped = bucket % 8;
+      if (wrapped < 0) {
+        wrapped += 8;
+      }
+      return wrapped;
+    } catch (...) {
+      return 0;
+    }
+  }
   if(o == "N") {
     return 0;
   } else if(o == "NE") {
